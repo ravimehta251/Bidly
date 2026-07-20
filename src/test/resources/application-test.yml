@@ -1,0 +1,12 @@
+# Test profile — Testcontainers provides real Postgres + Redis.
+# Properties are overridden dynamically via @DynamicPropertySource in AbstractIntegrationTest.
+spring:
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+jwt:
+  secret: test-secret-at-least-32-characters-long!!
+  expiration-ms: 3600000
