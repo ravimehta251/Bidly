@@ -1,8 +1,8 @@
-# BidFlare — Real-Time Auction Platform
+# Bidly — Real-Time Auction Platform
 
-BidFlare is a full-stack auction application with JWT authentication, scheduled auction lifecycles,
+Bidly is a full-stack auction application with JWT authentication, scheduled auction lifecycles,
 concurrency-safe bidding, and live bid updates over STOMP/WebSockets. The React client is served as a
-production image behind the same Nginx gateway as the horizontally scaled Spring Boot API.
+production image behind the same Nginx gateway as the Spring Boot API.
 
 ## Features
 
@@ -12,7 +12,8 @@ production image behind the same Nginx gateway as the horizontally scaled Spring
 - Place validated bids while an auction is live.
 - View bid history and receive live price/auction-close events without refreshing.
 - Protect concurrent bids with a Redisson distributed lock and JPA optimistic locking.
-- Share events between backend instances using Redis pub/sub.
+- Use Redis for distributed locking and event delivery; the default local Compose stack runs one backend instance.
+
 
 ## Architecture
 
@@ -22,16 +23,16 @@ Browser
   ▼
 Nginx :80 ───────────────► React/Vite frontend container
   │
-  ├── /api, /actuator, /swagger-ui, /ws ─► app-1 :8080
-  │                                      └► app-2 :8080
+    ├── /api, /actuator, /swagger-ui, /ws ─► app-2 :8080
+
   │
   ├── PostgreSQL 16 (Flyway-managed schema)
   └── Redis 7 (distributed locks and pub/sub)
 ```
 
 Nginx routes the SPA separately from backend paths and supports WebSocket upgrades on `/ws`. The API
-instances share PostgreSQL and Redis, so a bid received by one instance can update subscribers connected
-to another instance.
+The backend uses PostgreSQL and Redis for persistence, locking, and event delivery. The default Compose
+stack intentionally runs a single backend container; a second instance can be added later for horizontal scaling.
 
 ## Quick start with Docker
 
@@ -96,8 +97,7 @@ All API routes are prefixed with `/api`.
 | GET | `/auctions/{id}/bids` | No | Read bid history |
 | POST | `/auctions/{id}/bids` | Yes | Place a bid |
 
-The complete request/response schema is available in Swagger UI. The STOMP SockJS endpoint is `/ws`; bid
-updates are published to `/topic/auctions/{id}`.
+The complete request/response schema is available in Swagger UI. The STOMP SockJS endpoint is `/ws`; bid updates are published to `/topic/auctions/{id}` and auction-close updates to `/topic/auctions/{id}/closed`. Both event types are distributed through Redis.
 
 ## Tech stack
 
@@ -115,5 +115,6 @@ updates are published to `/topic/auctions/{id}`.
 - `Dockerfile` — backend image
 - `frontend/Dockerfile` — production frontend image
 - `docker-compose.yml` — complete local stack
-- `nginx/nginx.conf` — public routing and backend load balancing
+- `nginx/nginx.conf` — public routing and backend proxy
+
 

@@ -1,11 +1,11 @@
-version: "3.9"
 
-# ── BidFlare — docker compose up runs the whole stack ────────────────────────
+
+# ── bidly — docker compose up runs the whole stack ────────────────────────
 # Services:
 #   postgres   — primary datastore
 #   redis      — distributed locks + pub/sub
-#   app-1      — BidFlare instance 1
-#   app-2      — BidFlare instance 2
+#   app-2      — single bidly backend instance
+
 #   frontend   — production React/Vite build served by nginx
 #   nginx      — public gateway for the frontend and backend load balancer
 
@@ -15,24 +15,24 @@ services:
   # ─── Infrastructure ─────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: bidflare-postgres
+    container_name: bidly-postgres
     environment:
-      POSTGRES_DB:       bidflare
-      POSTGRES_USER:     bidflare
-      POSTGRES_PASSWORD: bidflare
+      POSTGRES_DB:       bidly
+      POSTGRES_USER:     bidly
+      POSTGRES_PASSWORD: bidly
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bidflare"]
+      test: ["CMD-SHELL", "pg_isready -U bidly"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
-    container_name: bidflare-redis
+    container_name: bidly-redis
     ports:
       - "6379:6379"
     healthcheck:
@@ -42,35 +42,15 @@ services:
       retries: 10
 
   # ─── App instances ───────────────────────────────────────────
-  app-1:
-    build: .
-    container_name: bidflare-app-1
-    environment:
-      DB_URL:       jdbc:postgresql://postgres:5432/bidflare
-      DB_USER:      bidflare
-      DB_PASS:      bidflare
-      REDIS_HOST:   redis
-      REDIS_PORT:   6379
-      JWT_SECRET:   ${JWT_SECRET:-change-me-in-production-at-least-32-chars}
-      PORT:         8080
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+  
 
   app-2:
     build: .
-    container_name: bidflare-app-2
+    container_name: bidly-app-2
     environment:
-      DB_URL:       jdbc:postgresql://postgres:5432/bidflare
-      DB_USER:      bidflare
-      DB_PASS:      bidflare
+      DB_URL:       jdbc:postgresql://postgres:5432/bidly
+      DB_USER:      bidly
+      DB_PASS:      bidly
       REDIS_HOST:   redis
       REDIS_PORT:   6379
       JWT_SECRET:   ${JWT_SECRET:-change-me-in-production-at-least-32-chars}
@@ -87,9 +67,10 @@ services:
       retries: 10
 
     # ─── Production frontend ────────────────────────────────────
+
   frontend:
     build: ./frontend
-    container_name: bidflare-frontend
+    container_name: bidly-frontend
     expose:
       - "80"
     healthcheck:
@@ -98,18 +79,19 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Public gateway and backend load balancer ────────────────
+    # ─── Public gateway and backend proxy ───────────────────────
+
   nginx:
     image: nginx:1.27-alpine
-    container_name: bidflare-nginx
+    container_name: bidly-nginx
     ports:
       - "80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
-      - app-1
       - app-2
+
 
 
 volumes:

@@ -13,9 +13,9 @@
     </parent>
 
     <groupId>com.bidflare</groupId>
-    <artifactId>bidflare</artifactId>
+    <artifactId>bidly</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>BidFlare</name>
+    <name>Bidly</name>
     <description>Real-time auction platform — concurrency + WebSockets + Redis pub/sub</description>
     <packaging>jar</packaging>
 

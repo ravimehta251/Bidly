@@ -30,7 +30,7 @@ const Navbar = () => {
       <div className="header-content">
         <Link to="/" className="logo">
           <Gavel size={24} color="var(--color-accent)" />
-          BidFlare
+          Bidly
         </Link>
         <nav style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <Link to="/" style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>Auctions</Link>

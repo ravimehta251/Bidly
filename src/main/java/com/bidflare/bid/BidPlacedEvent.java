@@ -9,5 +9,9 @@ public record BidPlacedEvent(
     BigDecimal amount,
     String leaderDisplayName,
     OffsetDateTime endTime,
-    OffsetDateTime ts
-) {}
+        OffsetDateTime ts
+) {
+    public String getType() {
+        return "BidPlaced";
+    }
+}

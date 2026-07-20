@@ -5,5 +5,9 @@ import java.math.BigDecimal;
 public record AuctionClosedEvent(
     Long auctionId,
     String winnerDisplayName,
-    BigDecimal finalPrice
-) {}
+        BigDecimal finalPrice
+) {
+    public String getType() {
+        return "AuctionClosed";
+    }
+}

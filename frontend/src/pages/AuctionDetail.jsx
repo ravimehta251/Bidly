@@ -31,27 +31,25 @@ const AuctionDetail = () => {
     // Connect and subscribe to real-time updates
     stompService.connect(() => {
       stompService.subscribe(`/topic/auctions/${id}`, (message) => {
-        // Depending on event type
-        if (message.type === 'BidPlaced') {
-          // Update current price and leader
-          setAuction(prev => ({
-            ...prev,
-            currentPrice: message.amount,
-            currentWinnerDisplayName: message.leaderDisplayName,
-            endTime: message.endTime // anti-snipe updates
-          }));
-          
-          // Prepend to history
-          setBids(prev => [{
-            id: message.ts, // temporary ID
-            amount: message.amount,
-            bidderDisplayName: message.leaderDisplayName,
-            createdAt: message.ts
-          }, ...prev]);
-        } else if (message.type === 'AuctionClosed') {
-          setAuction(prev => ({ ...prev, status: 'ENDED' }));
-          setClosedData(message);
-        }
+        setAuction(prev => ({
+          ...prev,
+          currentPrice: message.amount,
+          currentWinnerDisplayName: message.leaderDisplayName,
+          endTime: message.endTime
+        }));
+
+        setBids(prev => [{
+          id: message.bidId || message.ts,
+          amount: message.amount,
+          bidderDisplayName: message.leaderDisplayName,
+          createdAt: message.ts
+        }, ...prev]);
+      });
+
+      // Auction-close events use a separate Redis-backed topic.
+      stompService.subscribe(`/topic/auctions/${id}/closed`, (message) => {
+        setAuction(prev => ({ ...prev, status: 'ENDED' }));
+        setClosedData(message);
       });
     });
 

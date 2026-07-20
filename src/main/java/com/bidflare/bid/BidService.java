@@ -142,10 +142,20 @@ public class BidService {
         @Transactional(propagation = Propagation.REQUIRES_NEW)
         public BidResponse executeBidInTransaction(Long auctionId, PlaceBidRequest request,
                                                     String bidderEmail) {
-            Auction auction = auctionRepository.findById(auctionId)
+                        Auction auction = auctionRepository.findById(auctionId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found"));
 
+            // Repeat the idempotency check inside the lock and transaction. This closes
+            // the race where duplicate requests pass the fast-path check together.
+            if (request.idempotencyKey() != null) {
+                var existing = bidRepository.findByIdempotencyKey(request.idempotencyKey());
+                if (existing.isPresent()) {
+                    return BidResponse.from(existing.get());
+                }
+            }
+
             if (auction.getStatus() != AuctionStatus.LIVE) {
+
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Auction is not live (status=" + auction.getStatus() + ")");
             }

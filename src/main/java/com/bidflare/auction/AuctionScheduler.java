@@ -2,10 +2,12 @@ package com.bidflare.auction;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import com.bidflare.messaging.AuctionEventPublisher;
+
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -15,14 +17,16 @@ public class AuctionScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(AuctionScheduler.class);
 
-    private final AuctionRepository auctionRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+        private final AuctionRepository auctionRepository;
+    private final AuctionEventPublisher auctionEventPublisher;
+
 
     public AuctionScheduler(AuctionRepository auctionRepository,
-                            SimpMessagingTemplate messagingTemplate) {
+                            AuctionEventPublisher auctionEventPublisher) {
         this.auctionRepository = auctionRepository;
-        this.messagingTemplate = messagingTemplate;
+        this.auctionEventPublisher = auctionEventPublisher;
     }
+
 
     @Scheduled(fixedDelay = 10_000)
     @Transactional
@@ -46,13 +50,17 @@ public class AuctionScheduler {
             log.info("Auction {} transitioned LIVE → ENDED, winner={}", auction.getId(),
                     auction.getCurrentWinner() != null ? auction.getCurrentWinner().getDisplayName() : "none");
 
-            // Broadcast closed event via STOMP
+                        // Publish through Redis so every backend instance can notify its local clients.
+
+
             String winnerName = auction.getCurrentWinner() != null
                     ? auction.getCurrentWinner().getDisplayName()
                     : null;
             AuctionClosedEvent event = new AuctionClosedEvent(
                     auction.getId(), winnerName, auction.getCurrentPrice());
-            messagingTemplate.convertAndSend("/topic/auctions/" + auction.getId() + "/closed", event);
+                        auctionEventPublisher.publish(event);
+
+
         }
     }
 }

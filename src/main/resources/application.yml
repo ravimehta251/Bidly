@@ -1,11 +1,11 @@
 spring:
   application:
-    name: bidflare
+    name: bidly
 
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/bidflare}
-    username: ${DB_USER:bidflare}
-    password: ${DB_PASS:bidflare}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/bidly}
+    username: ${DB_USER:bidly}
+    password: ${DB_PASS:bidly}
     driver-class-name: org.postgresql.Driver
 
   jpa:

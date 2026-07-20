@@ -12,11 +12,11 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiConfig {
 
     @Bean
-    public OpenAPI bidFlareOpenAPI() {
+    public OpenAPI bidlyOpenAPI() {
         final String schemeName = "bearerAuth";
         return new OpenAPI()
             .info(new Info()
-                .title("BidFlare API")
+                .title("Bidly API")
                 .description("Real-time auction platform — concurrency + WebSockets + Redis pub/sub")
                 .version("0.0.1"))
             .addSecurityItem(new SecurityRequirement().addList(schemeName))
