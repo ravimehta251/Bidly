@@ -1,0 +1,88 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_PATH: /opt/bidly
+
+jobs:
+  deploy:
+    name: Deploy production stack
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload application
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='target' \
+            --exclude='frontend/node_modules' \
+            --exclude='frontend/dist' \
+            -czf /tmp/bidly.tar.gz .
+
+          scp -i ~/.ssh/ec2_key /tmp/bidly.tar.gz \
+            "$EC2_USER@$EC2_HOST:/tmp/bidly.tar.gz"
+
+      - name: Deploy with Docker Compose
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          printf '%s' "$JWT_SECRET" | ssh -i ~/.ssh/ec2_key \
+            "$EC2_USER@$EC2_HOST" \
+            "sudo install -d -o $EC2_USER -g $EC2_USER '$DEPLOY_PATH' && \
+             tar -xzf /tmp/bidly.tar.gz -C '$DEPLOY_PATH' && \
+             rm /tmp/bidly.tar.gz && \
+             read -r JWT_SECRET && \
+             printf 'JWT_SECRET=%s\\n' \"\$JWT_SECRET\" > '$DEPLOY_PATH/.env' && \
+             chmod 600 '$DEPLOY_PATH/.env' && \
+             cd '$DEPLOY_PATH' && \
+             docker compose up -d --build --remove-orphans && \
+             docker image prune -f"
+
+      - name: Verify deployment
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/ec2_key "$EC2_USER@$EC2_HOST" \
+            "for attempt in \$(seq 1 30); do \
+               if curl --fail --silent http://localhost/actuator/health >/dev/null; then \
+                 exit 0; \
+               fi; \
+               sleep 5; \
+             done; \
+             cd '$DEPLOY_PATH' && docker compose ps && docker compose logs --tail=100; \
+             exit 1"
