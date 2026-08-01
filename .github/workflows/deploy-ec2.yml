@@ -2,55 +2,52 @@ name: Deploy to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: production-deployment
+  group: bidly-production
   cancel-in-progress: false
 
 permissions:
   contents: read
 
-env:
-  DEPLOY_PATH: /opt/bidly
-
 jobs:
   deploy:
-    name: Deploy production stack
+    name: Deploy Bidly
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
 
     steps:
-      - name: Check out source
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Configure SSH
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          install -m 700 -d ~/.ssh
+          install -d -m 700 ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2_key
           chmod 600 ~/.ssh/ec2_key
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          cat >> ~/.ssh/config <<EOF
-          Host ec2-deploy
+          ssh-keyscan -H "$EC2_HOST" > ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host bidly-ec2
             HostName $EC2_HOST
-            User ${{ secrets.EC2_USER }}
+            User $EC2_USER
             IdentityFile ~/.ssh/ec2_key
+            IdentitiesOnly yes
             ServerAliveInterval 30
             ServerAliveCountMax 10
-            TCPKeepAlive yes
           EOF
           chmod 600 ~/.ssh/config
 
-      - name: Upload application
+      - name: Package application
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           tar \
             --exclude='.git' \
@@ -61,53 +58,67 @@ jobs:
             --exclude='frontend/dist' \
             -czf /tmp/bidly.tar.gz .
 
-          scp /tmp/bidly.tar.gz ec2-deploy:/tmp/bidly.tar.gz
+          printf 'JWT_SECRET=%s\n' "$JWT_SECRET" > /tmp/bidly.env
+          chmod 600 /tmp/bidly.env
 
-      - name: Deploy with Docker Compose
-        id: deploy
-        continue-on-error: true
+      - name: Upload application
+        run: |
+          scp /tmp/bidly.tar.gz bidly-ec2:/tmp/bidly.tar.gz
+          scp /tmp/bidly.env bidly-ec2:/tmp/bidly.env
+
+      - name: Deploy application
+        run: |
+          ssh bidly-ec2 'bash -s -- /opt/bidly' <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          DEPLOY_PATH="$1"
+
+          show_diagnostics() {
+            exit_code=$?
+            echo "::group::Docker Compose status"
+            docker compose -f "$DEPLOY_PATH/docker-compose.yml" ps --all || true
+            echo "::endgroup::"
+            echo "::group::Backend logs"
+            docker compose -f "$DEPLOY_PATH/docker-compose.yml" logs --no-color --tail=200 app-2 || true
+            echo "::endgroup::"
+            exit "$exit_code"
+          }
+          trap show_diagnostics ERR
+
+          sudo install -d -o "$(id -un)" -g "$(id -gn)" "$DEPLOY_PATH"
+          tar -xzf /tmp/bidly.tar.gz -C "$DEPLOY_PATH"
+          install -m 600 /tmp/bidly.env "$DEPLOY_PATH/.env"
+          rm -f /tmp/bidly.tar.gz /tmp/bidly.env
+
+          install -d -m 755 "$HOME/.docker/cli-plugins"
+          curl -fsSL \
+            https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-amd64 \
+            -o "$HOME/.docker/cli-plugins/docker-buildx"
+          chmod 755 "$HOME/.docker/cli-plugins/docker-buildx"
+          docker buildx version
+
+          cd "$DEPLOY_PATH"
+          docker compose config --quiet
+          docker compose up -d --build --remove-orphans --wait --wait-timeout 240
+          docker compose restart nginx
+          docker image prune -f
+          REMOTE_SCRIPT
+
+      - name: Verify public health endpoint
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
-          printf '%s' "$JWT_SECRET" | ssh ec2-deploy \
-            "sudo install -d -o $EC2_USER -g $EC2_USER '$DEPLOY_PATH' && \
-             tar -xzf /tmp/bidly.tar.gz -C '$DEPLOY_PATH' && \
-             rm /tmp/bidly.tar.gz && \
-             read -r JWT_SECRET && \
-             printf 'JWT_SECRET=%s\\n' \"\$JWT_SECRET\" > '$DEPLOY_PATH/.env' && \
-             chmod 600 '$DEPLOY_PATH/.env' && \
-             install -d -m 755 ~/.docker/cli-plugins && \
-             curl -fsSL https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-amd64 \
-               -o ~/.docker/cli-plugins/docker-buildx && \
-             chmod 755 ~/.docker/cli-plugins/docker-buildx && \
-             docker buildx version && \
-             cd '$DEPLOY_PATH' && \
-             docker compose up -d --build --remove-orphans --wait --wait-timeout 240 && \
-             docker compose restart nginx && \
-             docker image prune -f"
-
-      - name: Verify deployment
-        if: steps.deploy.outcome == 'success'
-        id: healthcheck
-        continue-on-error: true
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: |
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 12); do
             if curl --fail --silent --show-error \
               --connect-timeout 5 --max-time 10 \
               "http://$EC2_HOST/actuator/health" >/dev/null; then
+              echo "Bidly is healthy"
               exit 0
             fi
             sleep 5
           done
-          exit 1
 
-      - name: Show deployment diagnostics
-        if: steps.deploy.outcome == 'failure' || steps.healthcheck.outcome == 'failure'
-        run: |
-          ssh ec2-deploy \
-            "cd '$DEPLOY_PATH' && docker compose ps --all && docker compose logs --tail=150"
+          echo "Public health check failed"
+          ssh bidly-ec2 \
+            'cd /opt/bidly && docker compose ps --all && docker compose logs --no-color --tail=200 app-2 nginx'
           exit 1
