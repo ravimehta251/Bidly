@@ -64,6 +64,8 @@ jobs:
           scp /tmp/bidly.tar.gz ec2-deploy:/tmp/bidly.tar.gz
 
       - name: Deploy with Docker Compose
+        id: deploy
+        continue-on-error: true
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
@@ -82,10 +84,12 @@ jobs:
              chmod 755 ~/.docker/cli-plugins/docker-buildx && \
              docker buildx version && \
              cd '$DEPLOY_PATH' && \
-             docker compose up -d --build --remove-orphans && \
+             docker compose up -d --build --remove-orphans --wait --wait-timeout 240 && \
+             docker compose restart nginx && \
              docker image prune -f"
 
       - name: Verify deployment
+        if: steps.deploy.outcome == 'success'
         id: healthcheck
         continue-on-error: true
         env:
@@ -102,8 +106,8 @@ jobs:
           exit 1
 
       - name: Show deployment diagnostics
-        if: steps.healthcheck.outcome == 'failure'
+        if: steps.deploy.outcome == 'failure' || steps.healthcheck.outcome == 'failure'
         run: |
           ssh ec2-deploy \
-            "cd '$DEPLOY_PATH' && docker compose ps && docker compose logs --tail=100"
+            "cd '$DEPLOY_PATH' && docker compose ps --all && docker compose logs --tail=150"
           exit 1
