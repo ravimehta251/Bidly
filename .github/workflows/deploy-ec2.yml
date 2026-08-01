@@ -68,6 +68,11 @@ jobs:
              read -r JWT_SECRET && \
              printf 'JWT_SECRET=%s\\n' \"\$JWT_SECRET\" > '$DEPLOY_PATH/.env' && \
              chmod 600 '$DEPLOY_PATH/.env' && \
+             install -d -m 755 ~/.docker/cli-plugins && \
+             curl -fsSL https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-amd64 \
+               -o ~/.docker/cli-plugins/docker-buildx && \
+             chmod 755 ~/.docker/cli-plugins/docker-buildx && \
+             docker buildx version && \
              cd '$DEPLOY_PATH' && \
              docker compose up -d --build --remove-orphans && \
              docker image prune -f"
