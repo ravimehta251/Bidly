@@ -49,6 +49,12 @@ jobs:
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
+          JWT_SECRET_BYTES=$(printf '%s' "$JWT_SECRET" | wc -c)
+          if [ "$JWT_SECRET_BYTES" -lt 32 ]; then
+            echo "::error::JWT_SECRET must contain at least 32 bytes for HS256 (current length: $JWT_SECRET_BYTES)."
+            exit 1
+          fi
+
           tar \
             --exclude='.git' \
             --exclude='.github' \
